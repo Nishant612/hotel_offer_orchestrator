@@ -1,0 +1,15 @@
+$kind: http-request
+name: Delhi | no winners in range
+url: "{{baseUrl}}/api/hotels?city=delhi&minPrice=6000&maxPrice=6200"
+method: GET
+queryParams:
+  city: delhi
+  minPrice: "6000"
+  maxPrice: "6200"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('HTTP 200', () => pm.response.to.have.status(200));
+      pm.test('Discarded supplier quotes stay excluded', () => pm.expect(pm.response.json()).to.deep.equal([]));
+    language: text/javascript
+order: 4000

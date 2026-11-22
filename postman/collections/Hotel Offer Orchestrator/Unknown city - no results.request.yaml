@@ -1,0 +1,13 @@
+$kind: http-request
+name: Unknown city | no results
+url: "{{baseUrl}}/api/hotels?city=unknown"
+method: GET
+queryParams:
+  city: unknown
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('HTTP 200', () => pm.response.to.have.status(200));
+      pm.test('Returns an empty array', () => pm.expect(pm.response.json()).to.deep.equal([]));
+    language: text/javascript
+order: 5000

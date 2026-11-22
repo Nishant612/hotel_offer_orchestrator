@@ -1,0 +1,20 @@
+$kind: http-request
+name: Delhi | cheapest offer per hotel
+url: "{{baseUrl}}/api/hotels?city=delhi"
+method: GET
+queryParams:
+  city: delhi
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('HTTP 200', () => pm.response.to.have.status(200));
+      pm.test('Four unique hotels with their winning prices and commissions', () => {
+        pm.expect(pm.response.json()).to.deep.equal([
+          { name: 'Holtin', price: 5340, supplier: 'Supplier B', commissionPct: 20 },
+          { name: 'Radison', price: 5900, supplier: 'Supplier A', commissionPct: 13 },
+          { name: 'The Grand', price: 7200, supplier: 'Supplier B', commissionPct: 18 },
+          { name: 'Taj Palace', price: 8500, supplier: 'Supplier A', commissionPct: 15 }
+        ]);
+      });
+    language: text/javascript
+order: 1000

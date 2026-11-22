@@ -1,0 +1,296 @@
+{
+  "info": {
+    "name": "Hotel Offer Orchestrator",
+    "description": "Run against the Phase 8 Docker Compose deployment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Delhi | cheapest offer per hotel",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/hotels?city=delhi",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "hotels"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "delhi"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Four unique hotels with their winning prices and commissions', () => {",
+              "  pm.expect(pm.response.json()).to.deep.equal([",
+              "    { name: 'Holtin', price: 5340, supplier: 'Supplier B', commissionPct: 20 },",
+              "    { name: 'Radison', price: 5900, supplier: 'Supplier A', commissionPct: 13 },",
+              "    { name: 'The Grand', price: 7200, supplier: 'Supplier B', commissionPct: 18 },",
+              "    { name: 'Taj Palace', price: 8500, supplier: 'Supplier A', commissionPct: 15 }",
+              "  ]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delhi | price range",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=5000&maxPrice=6000",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "hotels"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "delhi"
+            },
+            {
+              "key": "minPrice",
+              "value": "5000"
+            },
+            {
+              "key": "maxPrice",
+              "value": "6000"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Two offers in the requested range', () => {",
+              "  const hotels = pm.response.json();",
+              "  pm.expect(hotels.map(hotel => hotel.name)).to.deep.equal(['Holtin', 'Radison']);",
+              "  pm.expect(hotels.map(hotel => hotel.price)).to.deep.equal([5340, 5900]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delhi | inclusive boundaries",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=5340&maxPrice=5900",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "hotels"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "delhi"
+            },
+            {
+              "key": "minPrice",
+              "value": "5340"
+            },
+            {
+              "key": "maxPrice",
+              "value": "5900"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Both endpoints are included', () => {",
+              "  pm.expect(pm.response.json().map(hotel => hotel.price)).to.deep.equal([5340, 5900]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delhi | no winners in range",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=6000&maxPrice=6200",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "hotels"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "delhi"
+            },
+            {
+              "key": "minPrice",
+              "value": "6000"
+            },
+            {
+              "key": "maxPrice",
+              "value": "6200"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Discarded supplier quotes stay excluded', () => pm.expect(pm.response.json()).to.deep.equal([]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Unknown city | no results",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/hotels?city=unknown",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "hotels"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "unknown"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Returns an empty array', () => pm.expect(pm.response.json()).to.deep.equal([]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invalid price range",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/hotels?city=delhi&minPrice=6000&maxPrice=5000",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "hotels"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "delhi"
+            },
+            {
+              "key": "minPrice",
+              "value": "6000"
+            },
+            {
+              "key": "maxPrice",
+              "value": "5000"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+              "pm.test('Explains the validation error', () => pm.expect(pm.response.json().error).to.be.a('string'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health | Redis and both suppliers",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Redis and both suppliers respond', () => {",
+              "  pm.expect(pm.response.json()).to.deep.equal({",
+              "    status: 'healthy', redis: 'PONG', suppliers: { supplierA: 'up', supplierB: 'up' }",
+              "  });",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

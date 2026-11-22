@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{baseUrl}}/api/hotels?city=delhi&minPrice=6000&maxPrice=5000"
+method: GET
+queryParams:
+  city: delhi
+  minPrice: "6000"
+  maxPrice: "5000"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('HTTP 400', () => pm.response.to.have.status(400));
+      pm.test('Explains the validation error', () => pm.expect(pm.response.json().error).to.be.a('string'));
+    language: text/javascript
+order: 6000

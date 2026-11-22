@@ -1,0 +1,17 @@
+$kind: http-request
+name: Delhi | inclusive boundaries
+url: "{{baseUrl}}/api/hotels?city=delhi&minPrice=5340&maxPrice=5900"
+method: GET
+queryParams:
+  city: delhi
+  minPrice: "5340"
+  maxPrice: "5900"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('HTTP 200', () => pm.response.to.have.status(200));
+      pm.test('Both endpoints are included', () => {
+        pm.expect(pm.response.json().map(hotel => hotel.price)).to.deep.equal([5340, 5900]);
+      });
+    language: text/javascript
+order: 3000

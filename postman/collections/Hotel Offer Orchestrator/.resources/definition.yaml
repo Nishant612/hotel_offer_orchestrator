@@ -1,0 +1,4 @@
+$kind: collection
+description: Run against the Phase 8 Docker Compose deployment.
+variables:
+  baseUrl: http://localhost:3000
