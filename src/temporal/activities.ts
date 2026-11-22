@@ -1,20 +1,23 @@
 
-import { SupplierHotel } from "../types/hotel";
+import type { SupplierHotel } from "../types/hotel";
 
-async function fetchSupplier(
-  supplier: "A" | "B",
+const BASE_URL =
+  process.env.SUPPLIER_BASE_URL ??
+  "http://localhost:3000";
+
+async function fetchHotels(
+  supplier: "supplierA" | "supplierB",
   city: string
 ): Promise<SupplierHotel[]> {
-  const baseUrl =
-    process.env.SUPPLIER_BASE_URL ??
-    "http://localhost:3000";
 
   const url = new URL(
-    `/supplier${supplier}/hotels`,
-    baseUrl
+    `/${supplier}/hotels`,
+    BASE_URL
   );
 
   url.searchParams.set("city", city);
+
+  console.log(`Fetching hotels from ${supplier}`);
 
   const response = await fetch(url, {
     signal: AbortSignal.timeout(5000)
@@ -22,27 +25,30 @@ async function fetchSupplier(
 
   if (!response.ok) {
     throw new Error(
-      `Supplier ${supplier} returned ${response.status}`
+      `${supplier} failed with HTTP ${response.status}`
     );
   }
 
-  const data: unknown = await response.json();
+  const hotels =
+    (await response.json()) as SupplierHotel[];
 
-  if (!Array.isArray(data)) {
-    throw new Error("Invalid supplier response");
+  if (!Array.isArray(hotels)) {
+    throw new Error(
+      `Invalid response from ${supplier}`
+    );
   }
 
-  return data as SupplierHotel[];
+  return hotels;
 }
 
 export async function fetchSupplierA(
   city: string
 ): Promise<SupplierHotel[]> {
-  return fetchSupplier("A", city);
+  return fetchHotels("supplierA", city);
 }
 
 export async function fetchSupplierB(
   city: string
 ): Promise<SupplierHotel[]> {
-  return fetchSupplier("B", city);
+  return fetchHotels("supplierB", city);
 }

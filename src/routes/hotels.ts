@@ -1,100 +1,155 @@
 
 import { Router } from "express";
-import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { Connection, Client } from "@temporalio/client";
 
+import { createTemporalClient } from "../temporal/client";
 import { hotelWorkflow } from "../temporal/workflows";
+
 import {
+  isHotelCacheReady,
   saveHotels,
   getHotelsByPrice
 } from "../services/hotelCache";
 
-export const hotelRouter = Router();
+const router = Router();
 
-const querySchema = z.object({
-  city: z.string().trim().min(1),
-  minPrice: z.coerce.number().finite().min(0).optional(),
-  maxPrice: z.coerce.number().finite().min(0).optional()
-}).refine(
-  data =>
-    data.minPrice === undefined ||
-    data.maxPrice === undefined ||
-    data.minPrice <= data.maxPrice,
-  {
-    message: "minPrice must not exceed maxPrice"
-  }
-);
+const pendingCities = new Map<string, Promise<void>>();
 
-let temporalClient: Client | undefined;
-
-async function getTemporalClient(): Promise<Client> {
-  if (!temporalClient) {
-    const connection = await Connection.connect({
-      address:
-        process.env.TEMPORAL_ADDRESS ??
-        "localhost:7233"
-    });
-
-    temporalClient = new Client({ connection });
+function parsePrice(
+  value: unknown,
+  name: string,
+  defaultValue: number
+): number {
+  if (value === undefined) {
+    return defaultValue;
   }
 
-  return temporalClient;
+  if (
+    typeof value !== "string" ||
+    value.trim() === ""
+  ) {
+    throw new Error(`${name} must be a valid number`);
+  }
+
+  const price = Number(value);
+
+  if (!Number.isFinite(price) || price < 0) {
+    throw new Error(
+      `${name} must be a non-negative finite number`
+    );
+  }
+
+  return price;
 }
 
-hotelRouter.get("/api/hotels", async (req, res) => {
-  const parsed = querySchema.safeParse(req.query);
+async function populateCache(city: string): Promise<void> {
+  const existing = pendingCities.get(city);
 
-  if (!parsed.success) {
+  if (existing) {
+    return existing;
+  }
+
+  const task = (async () => {
+    // Recheck in case another request populated the cache.
+    if (await isHotelCacheReady(city)) {
+      return;
+    }
+
+    const client = await createTemporalClient();
+
+    const hotels = await client.workflow.execute(
+      hotelWorkflow,
+      {
+        taskQueue: "hotel-task-queue",
+        workflowId: `hotels-${city}-${randomUUID()}`,
+        args: [city],
+        workflowExecutionTimeout: "45 seconds"
+      }
+    );
+
+    await saveHotels(city, hotels);
+  })();
+
+  pendingCities.set(city, task);
+
+  try {
+    await task;
+  } finally {
+    if (pendingCities.get(city) === task) {
+      pendingCities.delete(city);
+    }
+  }
+}
+
+router.get("/api/hotels", async (req, res) => {
+  const rawCity = req.query.city;
+
+  if (
+    typeof rawCity !== "string" ||
+    rawCity.trim().length === 0
+  ) {
     res.status(400).json({
-      error: "Invalid query parameters",
-      details: parsed.error.flatten()
+      error: "city is required"
     });
     return;
   }
 
-  const { minPrice, maxPrice } = parsed.data;
-  const city = parsed.data.city.toLowerCase();
+  const city = rawCity.trim().toLowerCase();
+
+  let minPrice: number;
+  let maxPrice: number;
 
   try {
-    let hotels = await getHotelsByPrice(
+    minPrice = parsePrice(
+      req.query.minPrice,
+      "minPrice",
+      0
+    );
+
+    maxPrice = parsePrice(
+      req.query.maxPrice,
+      "maxPrice",
+      Infinity
+    );
+  } catch (error) {
+    res.status(400).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Invalid price parameters"
+    });
+    return;
+  }
+
+  if (minPrice > maxPrice) {
+    res.status(400).json({
+      error: "minPrice cannot exceed maxPrice"
+    });
+    return;
+  }
+
+  try {
+    const cacheHit = await isHotelCacheReady(city);
+
+    if (!cacheHit) {
+      await populateCache(city);
+    }
+
+    const hotels = await getHotelsByPrice(
       city,
       minPrice,
       maxPrice
     );
 
-    if (hotels === null) {
-      const client = await getTemporalClient();
-
-      const results = await client.workflow.execute(
-        hotelWorkflow,
-        {
-          taskQueue: "hotel-task-queue",
-          workflowId: `hotel-${city}-${randomUUID()}`,
-          args: [city],
-          workflowExecutionTimeout: "45 seconds"
-        }
-      );
-
-      await saveHotels(city, results);
-
-      hotels = await getHotelsByPrice(
-        city,
-        minPrice,
-        maxPrice
-      );
-    }
-
-    if (hotels === null) {
-      throw new Error("Hotel cache unavailable");
-    }
-
-    res.json(hotels);
+    res.set("X-Cache", cacheHit ? "HIT" : "MISS");
+    res.status(200).json(hotels);
   } catch (error) {
-    console.error("Hotel search failed:", error);
+    console.error("Hotel API error:", error);
 
     res.status(503).json({
-      error: "Hotel search temporarily unavailable"
+      error: "Hotel service temporarily unavailable"
     });
   }
 });
+
+export default router;

@@ -1,25 +1,41 @@
 
 import { Router } from "express";
-import { supplierA, supplierB } from "../data/hotel";
 
-export const supplierRouter = Router();
+import {
+  supplierAHotels,
+  supplierBHotels
+} from "../data/hotel";
 
-supplierRouter.get("/supplierA/hotels", (req, res) => {
+const router = Router();
+
+// Supplier A API
+router.get("/supplierA/hotels", (req, res) => {
   const city = String(req.query.city ?? "")
     .trim()
     .toLowerCase();
 
-  res.json(
-    supplierA.filter(hotel => hotel.city === city)
-  );
+  const hotels = city
+    ? supplierAHotels.filter(
+        hotel => hotel.city.toLowerCase() === city
+      )
+    : supplierAHotels;
+
+  res.json(hotels);
 });
 
-supplierRouter.get("/supplierB/hotels", (req, res) => {
+// Supplier B API
+router.get("/supplierB/hotels", (req, res) => {
   const city = String(req.query.city ?? "")
     .trim()
     .toLowerCase();
 
-  res.json(
-    supplierB.filter(hotel => hotel.city === city)
-  );
+  const hotels = city
+    ? supplierBHotels.filter(
+        hotel => hotel.city.toLowerCase() === city
+      )
+    : supplierBHotels;
+
+  res.json(hotels);
 });
+
+export default router;

@@ -1,0 +1,69 @@
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -17,20 +17,35 @@
+   });
+ });
+ 
+-app.get("/health", async (_req, res) => {
++async function supplierStatus(supplier: "supplierA" | "supplierB") {
++  const port = process.env.PORT ?? "3000";
+   try {
+-    const redis = await redisClient.ping();
+-
+-    res.status(200).json({
+-      status: "healthy",
+-      redis
+-    });
++    const response = await fetch(
++      `http://127.0.0.1:${port}/${supplier}/hotels`,
++      { signal: AbortSignal.timeout(2000) }
++    );
++    const hotels: unknown = await response.json();
++    return response.ok && Array.isArray(hotels) ? "up" : "down";
+   } catch {
+-    res.status(503).json({
+-      status: "unhealthy",
+-      redis: "unavailable"
+-    });
++    return "down";
+   }
++}
++
++app.get("/health", async (_req, res) => {
++  const [redis, supplierA, supplierB] = await Promise.all([
++    redisClient.isReady
++      ? redisClient.ping().catch(() => "unavailable")
++      : Promise.resolve("unavailable"),
++    supplierStatus("supplierA"),
++    supplierStatus("supplierB")
++  ]);
++  const healthy = redis === "PONG" && supplierA === "up" && supplierB === "up";
++
++  res.status(healthy ? 200 : 503).json({
++    status: healthy ? "healthy" : "unhealthy",
++    redis,
++    suppliers: { supplierA, supplierB }
++  });
+ });
+ 
+ app.use(supplierRoutes);
+--- a/src/routes/hotels.ts
++++ b/src/routes/hotels.ts
+@@ -77,15 +77,8 @@
+       maxPrice
+     );
+ 
+-    res.status(200).json({
+-      city,
+-      minPrice,
+-      maxPrice:
+-        Number.isFinite(maxPrice) ? maxPrice : null,
+-      count: hotels.length,
+-      cache: cacheHit ? "HIT" : "MISS",
+-      hotels
+-    });
++    res.set("X-Cache", cacheHit ? "HIT" : "MISS");
++    res.status(200).json(hotels);
+   } catch (error) {
+     console.error("Hotel API error:", error);
+ 

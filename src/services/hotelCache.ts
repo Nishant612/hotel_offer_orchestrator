@@ -1,103 +1,108 @@
 
-import { redisClient } from "./redis";
-import { HotelOffer } from "../types/hotel";
-import { randomUUID } from "node:crypto";
+import "dotenv/config";
 
-const TTL = Number(
+import { redisClient } from "./redis";
+
+import type { HotelOffer } from "../types/hotel";
+
+const CACHE_TTL_SECONDS = Number(
   process.env.CACHE_TTL_SECONDS ?? 300
 );
 
-function normalizeName(name: string): string {
-  return name.trim().replace(/\s+/g, " ").toLowerCase();
+function getCacheKeys(city: string) {
+  const normalizedCity = city.trim().toLowerCase();
+
+  return {
+    prices: `hotels:${normalizedCity}`,
+    data: `hotels:${normalizedCity}:data`,
+    ready: `hotels:${normalizedCity}:ready`
+  };
 }
 
-function cityKey(city: string): string {
-  return `hotels:${city.toLowerCase()}`;
+function normalizeHotelName(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
+// Save the deduplicated hotel list.
 export async function saveHotels(
   city: string,
   hotels: HotelOffer[]
 ): Promise<void> {
-  const key = cityKey(city);
-  const dataKey = `${key}:data`;
-  const readyKey = `${key}:ready`;
 
-  // Prevent concurrent cache writes for the same city.
-  const lockKey = `${key}:lock`;
-  const lockToken = randomUUID();
+  const keys = getCacheKeys(city);
 
-  const locked = await redisClient.set(
-    lockKey,
-    lockToken,
-    { NX: true, PX: 10000 }
-  );
+  const transaction = redisClient.multi();
 
-  if (locked !== "OK") {
-    throw new Error("Cache update already in progress");
-  }
+  // Remove any previous cached version.
+  transaction.del([keys.prices, keys.data, keys.ready]);
 
-  try {
-    // Mark the cache as unavailable while replacing it.
-    await redisClient.del(readyKey);
+  if (hotels.length > 0) {
+    // Price index: hotel name -> price
+    transaction.zAdd(
+      keys.prices,
+      hotels.map(hotel => ({
+        score: hotel.price,
+        value: normalizeHotelName(hotel.name)
+      }))
+    );
 
-    const transaction = redisClient.multi();
-
-    transaction.del(key);
-    transaction.del(dataKey);
+    // Full hotel details: name -> JSON
+    const hotelData: Record<string, string> = {};
 
     for (const hotel of hotels) {
-      const member = normalizeName(hotel.name);
-
-      transaction.zAdd(key, {
-        score: hotel.price,
-        value: member
-      });
-
-      transaction.hSet(
-        dataKey,
-        member,
-        JSON.stringify(hotel)
-      );
+      hotelData[normalizeHotelName(hotel.name)] =
+        JSON.stringify(hotel);
     }
 
-    transaction.expire(key, TTL);
-    transaction.expire(dataKey, TTL);
-    transaction.set(readyKey, "1", {
-      EX: TTL
-    });
+    transaction.hSet(keys.data, hotelData);
 
-    await transaction.exec();
-  } finally {
-    // Release only the lock owned by this operation.
-    await redisClient.eval(
-      `if redis.call("GET", KEYS[1]) == ARGV[1]
-       then return redis.call("DEL", KEYS[1])
-       else return 0 end`,
-      {
-        keys: [lockKey],
-        arguments: [lockToken]
-      }
+    transaction.expire(
+      keys.prices,
+      CACHE_TTL_SECONDS
+    );
+
+    transaction.expire(
+      keys.data,
+      CACHE_TTL_SECONDS
     );
   }
+
+  // This marker also represents a valid empty result.
+  transaction.set(keys.ready, "1", {
+    EX: CACHE_TTL_SECONDS
+  });
+
+  await transaction.exec();
+
+  console.log(
+    `Cached ${hotels.length} hotels for ${city}`
+  );
 }
 
+// Check whether a complete cache exists.
+export async function isHotelCacheReady(
+  city: string
+): Promise<boolean> {
+
+  const keys = getCacheKeys(city);
+
+  return (await redisClient.exists(keys.ready)) === 1;
+}
+
+// Retrieve hotels using Redis-side price filtering.
 export async function getHotelsByPrice(
   city: string,
   minPrice = 0,
-  maxPrice = Number.POSITIVE_INFINITY
-): Promise<HotelOffer[] | null> {
-  const key = cityKey(city);
-  const dataKey = `${key}:data`;
-  const readyKey = `${key}:ready`;
+  maxPrice = Infinity
+): Promise<HotelOffer[]> {
 
-  if (!(await redisClient.exists(readyKey))) {
-    return null;
-  }
+  const keys = getCacheKeys(city);
 
-  // Filtering happens in Redis.
   const hotelNames = await redisClient.zRangeByScore(
-    key,
+    keys.prices,
     minPrice,
     maxPrice
   );
@@ -106,12 +111,18 @@ export async function getHotelsByPrice(
     return [];
   }
 
-  const values = await redisClient.hmGet(
-    dataKey,
+  const hotelJson = await redisClient.hmGet(
+    keys.data,
     hotelNames
   );
 
-  return values
-    .filter((value): value is string => value !== null)
-    .map(value => JSON.parse(value) as HotelOffer);
+  const hotels: HotelOffer[] = [];
+
+  for (const item of hotelJson) {
+    if (item !== null) {
+      hotels.push(JSON.parse(item) as HotelOffer);
+    }
+  }
+
+  return hotels;
 }
